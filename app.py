@@ -10,83 +10,102 @@ ROOT=Path(__file__).resolve().parent
 OUT=ROOT/'output'
 st.set_page_config(page_title='Vietnam Money Flow',page_icon='📈',layout='wide')
 
-# Temporary deployment test
-# No user authentication in this version.
+
+# Demo mode is limited to public pilot data. Configure OIDC before sharing private research.
 email = "pilot"
 admin_set = set()
-page = st.sidebar.radio(
-    "Chọn trang",
-    ["Stock Screener", "Sector Rotation"]
-)
+
 @st.cache_data(ttl=300)
 def load_data():
-    required=['stock_screener.csv','sector_rotation.csv']
-    missing=[x for x in required if not (OUT/x).exists()]
-    if missing: return None,None,None,missing
-    stocks=pd.read_csv(OUT/required[0]); sectors=pd.read_csv(OUT/required[1]); status={}
-    if (OUT/'refresh_status.json').exists():
-        status=json.loads((OUT/'refresh_status.json').read_text(encoding='utf-8'))
-    return stocks,sectors,status,[]
+    p=OUT/'stock_screener.csv'
+    if not p.exists(): return None, {}
+    df=pd.read_csv(p)
+    status={}
+    q=OUT/'refresh_status.json'
+    if q.exists():
+        status=json.loads(q.read_text(encoding='utf-8-sig'))
+    return df,status
 
+stocks,status=load_data()
+st.sidebar.title("Vietnam Money Flow")
+page=st.sidebar.radio("Chọn trang",["Stock Screener","Sector Rotation"])
+if st.sidebar.button("Làm mới dữ liệu"):
+    load_data.clear()
+    st.rerun()
 
-    st.title('Vietnam Money Flow')
-    st.caption(email)
-    page=st.radio('Trang', ['Stock Screener','Sector Rotation'])
-    if st.button('Làm mới màn hình'):
-        load_data.clear();st.rerun()
-    if st.button('Đăng xuất'): st.logout()
-    st.caption('Nguồn: Finwise REST API · Dữ liệu cập nhật bởi job Python')
-
-stocks,sectors,status,missing=load_data()
-if missing:
-    st.warning('Chưa có dữ liệu xử lý. Chạy `python pipeline.py` trên máy chủ đã cấu hình FINWISE_API_KEY.')
-    st.code('python pipeline.py',language='powershell')
-    st.info('Tệp universe.csv hiện chỉ có 4 mã thử nghiệm. Chưa có dữ liệu toàn bộ 3 sàn.')
+if stocks is None:
+    st.warning("Chưa có output/stock_screener.csv. Hãy tải dữ liệu thử nghiệm lên GitHub.")
     st.stop()
 
-st.title('Stock Screener' if page=='Stock Screener' else 'Sector Rotation')
-last=status.get('last_settled_session','chưa rõ')
-st.caption(f'Phiên dữ liệu: {last} · {status.get("symbols_loaded","?")} mã đã tải · {status.get("failures","?")} lỗi · Giá gốc/điều chỉnh: {status.get("adjustments","?")}')
-
+st.caption("Dữ liệu pilot · không tự cập nhật · chưa có xác thực người dùng · không dùng cho dữ liệu nội bộ")
+st.caption(f"Phiên dữ liệu: {status.get('last_settled_session', stocks['date'].max() if 'date' in stocks else 'không rõ')}")
 with st.sidebar:
-    exchanges=sorted(stocks.exchange.dropna().unique().tolist())
-    ex=st.multiselect('Sàn',exchanges,default=exchanges)
-    industries=sorted(stocks.sector.dropna().unique().tolist())
-    selected=st.multiselect('Ngành',industries,default=industries)
-    adv=st.number_input('GTGD bình quân 20 phiên tối thiểu (tỷ VND)',min_value=0.0,max_value=500.0,value=5.0,step=1.0)
-    min_score=st.slider('Điểm dòng tiền tối thiểu',0,100,0)
-    phase=st.multiselect('Trạng thái dòng tiền',sorted(stocks.market_phase.dropna().unique().tolist()))
-
-s=stocks[stocks.exchange.isin(ex)&stocks.sector.isin(selected)&(stocks.adv20_vnd>=adv*1e9)&(stocks.flow_score_prelim>=min_score)].copy()
-if phase: s=s[s.market_phase.isin(phase)]
-if page=='Stock Screener':
-    c1,c2,c3,c4=st.columns(4)
-    c1.metric('Cổ phiếu đạt lọc',len(s))
-    c2.metric('CMF20 dương',f'{(s.cmf20.gt(0).mean()*100):.1f}%' if len(s) else '—')
-    c3.metric('RVOL ≥ 1,5',int(s.rvol20.ge(1.5).sum()))
-    c4.metric('Tích lũy Watch',int(s.market_phase.eq('Accumulation Watch').sum()))
-    cols=['ticker','exchange','sector','close','adv20_vnd','ret20','cmf20','obv_change20','rvol20','vsa_signal','market_phase','flow_score_prelim']
-    st.dataframe(s[cols].sort_values('flow_score_prelim',ascending=False),hide_index=True,use_container_width=True)
-    st.download_button('Xuất danh sách CSV',s[cols].to_csv(index=False).encode('utf-8-sig'),'stock_screener.csv','text/csv')
-    if not s.empty:
-        chart=px.scatter(s,x='cmf20',y='rvol20',size='adv20_vnd',color='sector',hover_name='ticker',title='Dòng tiền: CMF20 vs RVOL20',size_max=35)
-        st.plotly_chart(chart,use_container_width=True)
+    ex=st.multiselect("Sàn",sorted(stocks.exchange.dropna().unique()),default=sorted(stocks.exchange.dropna().unique()))
+    inds=st.multiselect("Ngành",sorted(stocks.sector.dropna().unique()),default=sorted(stocks.sector.dropna().unique()))
+    adv=st.number_input("GTGD bình quân 20 phiên tối thiểu (tỷ VND)",0.0,500.0,5.0,1.0)
+    min_score=st.slider("Flow Score tối thiểu",0,100,0)
+    phases=st.multiselect("Trạng thái dòng tiền",sorted(stocks.market_phase.dropna().unique()))
+s=stocks[stocks.exchange.isin(ex)&stocks.sector.isin(inds)&stocks.adv20_vnd.ge(adv*1e9)&stocks.flow_score_prelim.ge(min_score)].copy()
+if phases: s=s[s.market_phase.isin(phases)]
+if page=="Stock Screener":
+    st.title("Stock Screener")
+    a,b,c=st.columns(3)
+    a.metric("Cổ phiếu đạt lọc",len(s))
+    b.metric("CMF20 dương",f"{s.cmf20.gt(0).mean()*100:.1f}%" if len(s) else "—")
+    c.metric("RVOL ≥ 1,5",int(s.rvol20.ge(1.5).sum()))
+    st.dataframe(s.sort_values("flow_score_prelim",ascending=False),hide_index=True,use_container_width=True)
+    st.download_button("Xuất danh sách CSV",s.to_csv(index=False).encode("utf-8-sig"),"stock_screener.csv","text/csv")
+    if len(s):
+        st.plotly_chart(px.scatter(s,x="cmf20",y="rvol20",size="adv20_vnd",color="sector",hover_name="ticker",size_max=38),use_container_width=True)
 else:
+    st.title("Sector Rotation | Dòng tiền theo ngành")
+    st.warning("PILOT: Mỗi ngành hiện chỉ có 1 mã. Điểm ngành không đại diện cho toàn ngành. Không thể suy ra luân chuyển dòng tiền qua thời gian từ một phiên dữ liệu.")
     if s.empty:
-        st.info('Không có cổ phiếu đáp ứng bộ lọc.')
-    else:
-        grouped=s.groupby('sector').agg(stock_count=('ticker','nunique'),avg_score=('flow_score_prelim','mean'),cmf_positive_pct=('cmf20',lambda x:100*x.gt(0).mean()),obv_rising_pct=('obv_up20',lambda x:100*x.gt(0).mean()),high_rvol_pct=('rvol20',lambda x:100*x.ge(1.5).mean()),accumulation_pct=('market_phase',lambda x:100*x.eq('Accumulation Watch').mean()),distribution_pct=('market_phase',lambda x:100*x.eq('Distribution Watch').mean()),total_adv_vnd=('adv20_vnd','sum')).reset_index()
-        grouped['sector_rank']=grouped.avg_score.rank(ascending=False,method='min').astype(int)
-        grouped=grouped.sort_values('sector_rank')
-        st.caption('Xếp hạng ngành được tính lại trên chính các cổ phiếu đáp ứng bộ lọc; không phải xếp hạng toàn thị trường khi có bộ lọc.')
-        st.plotly_chart(px.bar(grouped.head(25),x='avg_score',y='sector',orientation='h',color='cmf_positive_pct',title='Xếp hạng dòng tiền theo ngành').update_layout(yaxis={'categoryorder':'total ascending'}),use_container_width=True)
-        st.dataframe(grouped,hide_index=True,use_container_width=True)
-        st.download_button('Xuất bảng ngành CSV',grouped.to_csv(index=False).encode('utf-8-sig'),'sector_rotation.csv','text/csv')
-
-st.divider()
-st.caption('Flow Score là chỉ báo nghiên cứu chưa backtest; VSA là quy tắc nhận dạng heuristic, không xác nhận giao dịch của tổ chức. Không sử dụng làm khuyến nghị mua/bán độc lập.')
-if email in admin_set:
-    with st.expander('Quản trị · Trạng thái tải dữ liệu'):
-        st.json(status)
-        if (OUT/'load_errors.csv').exists():
-            st.dataframe(pd.read_csv(OUT/'load_errors.csv'),hide_index=True)
+        st.info("Không có cổ phiếu phù hợp bộ lọc.")
+        st.stop()
+    g=s.groupby("sector",as_index=False).agg(
+        stock_count=("ticker","nunique"),
+        avg_score=("flow_score_prelim","mean"),
+        cmf_positive_pct=("cmf20",lambda x:100*x.gt(0).mean()),
+        obv_rising_pct=("obv_change20",lambda x:100*x.gt(0).mean()),
+        high_rvol_pct=("rvol20",lambda x:100*x.ge(1.5).mean()),
+        avg_cmf20=("cmf20","mean"),
+        avg_rvol20=("rvol20","mean"),
+        total_adv_vnd=("adv20_vnd","sum"),
+        ret20_mean=("ret20","mean")
+    )
+    g["liquidity_share_pct"]=100*g.total_adv_vnd/g.total_adv_vnd.sum()
+    g["sector_rank"]=g.avg_score.rank(ascending=False,method="min").astype(int)
+    g=g.sort_values("sector_rank")
+    c1,c2,c3,c4=st.columns(4)
+    c1.metric("Ngành được lọc",len(g))
+    c2.metric("Số cổ phiếu",len(s))
+    c3.metric("CMF20 dương",f"{s.cmf20.gt(0).mean()*100:.1f}%")
+    c4.metric("Thanh khoản bình quân",f"{s.adv20_vnd.sum()/1e9:,.1f} tỷ/ngày")
+    tab1,tab2,tab3=st.tabs(["Sức mạnh dòng tiền","Độ rộng & thanh khoản","Chi tiết & xuất dữ liệu"])
+    with tab1:
+        fig=px.bar(g,x="avg_score",y="sector",orientation="h",color="cmf_positive_pct",
+                   hover_data=["stock_count","avg_cmf20","avg_rvol20"],
+                   labels={"avg_score":"Flow Score (pilot)","sector":"Ngành","cmf_positive_pct":"% CMF20 dương"})
+        fig.update_layout(yaxis={"categoryorder":"total ascending"},height=max(360,70*len(g)))
+        st.plotly_chart(fig,use_container_width=True)
+        st.caption("Điểm trung bình các cổ phiếu đạt lọc, không phải điểm ngành chính thức. Ngành ít mã có độ tin cậy thấp.")
+    with tab2:
+        fig=px.scatter(g,x="cmf_positive_pct",y="obv_rising_pct",size="total_adv_vnd",
+                       color="avg_score",hover_name="sector",hover_data=["stock_count","liquidity_share_pct"],
+                       labels={"cmf_positive_pct":"% cổ phiếu CMF20 dương","obv_rising_pct":"% cổ phiếu OBV tăng","avg_score":"Flow Score"},
+                       size_max=55)
+        fig.update_xaxes(range=[-5,105])
+        fig.update_yaxes(range=[-5,105])
+        st.plotly_chart(fig,use_container_width=True)
+        fig2=px.bar(g,x="sector",y="liquidity_share_pct",color="sector",
+                    labels={"liquidity_share_pct":"Tỷ trọng GTGD bình quân (%)","sector":"Ngành"})
+        fig2.update_layout(showlegend=False)
+        st.plotly_chart(fig2,use_container_width=True)
+        st.caption("Tỷ trọng chỉ tính trong tập cổ phiếu đang được lọc, không phải tỷ trọng dòng tiền toàn thị trường.")
+    with tab3:
+        st.dataframe(g.style.format({"avg_score":"{:.1f}","cmf_positive_pct":"{:.1f}%","obv_rising_pct":"{:.1f}%","high_rvol_pct":"{:.1f}%","avg_cmf20":"{:.3f}","avg_rvol20":"{:.2f}","liquidity_share_pct":"{:.1f}%","ret20_mean":"{:.1%}","total_adv_vnd":"{:,.0f}"}),hide_index=True,use_container_width=True)
+        sector=st.selectbox("Xem cổ phiếu trong ngành",g.sector.tolist())
+        st.dataframe(s.loc[s.sector.eq(sector),["ticker","close","cmf20","rvol20","ret20","flow_score_prelim","vsa_signal"]],hide_index=True,use_container_width=True)
+        st.download_button("Xuất Sector Rotation CSV",g.to_csv(index=False).encode("utf-8-sig"),"sector_rotation_improved.csv","text/csv")
+    st.info("Tính năng so sánh 5/10/20 phiên sẽ được kích hoạt khi có dữ liệu lịch sử theo ngày. Không dùng dữ liệu giả để tạo xu hướng.")
