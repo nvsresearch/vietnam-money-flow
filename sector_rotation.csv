@@ -1,0 +1,5 @@
+﻿sector,stock_count,avg_score,cmf_positive_pct,obv_rising_pct,high_rvol_pct,accumulation_pct,distribution_pct,date,sector_rank
+Công nghệ,1,13.3,0.0,0.0,100.0,0.0,0.0,2026-10-28,4
+Hàng tiêu dùng,1,59.5,0.0,100.0,0.0,0.0,0.0,2026-10-28,1
+Thép,1,51.3,0.0,100.0,0.0,0.0,0.0,2026-10-28,3
+Tài nguyên,1,54.6,100.0,100.0,0.0,0.0,0.0,2026-10-28,2
