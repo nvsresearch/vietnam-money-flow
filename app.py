@@ -82,7 +82,34 @@ else:
     c2.metric("Số cổ phiếu",len(s))
     c3.metric("CMF20 dương",f"{s.cmf20.gt(0).mean()*100:.1f}%")
     c4.metric("Thanh khoản bình quân",f"{s.adv20_vnd.sum()/1e9:,.1f} tỷ/ngày")
-    tab1,tab2,tab3=st.tabs(["Sức mạnh dòng tiền","Độ rộng & thanh khoản","Chi tiết & xuất dữ liệu"])
+    tab0,tab1,tab2,tab3=st.tabs(["Ma trận luân chuyển","Sức mạnh dòng tiền","Độ rộng & thanh khoản","Chi tiết & xuất dữ liệu"])
+    with tab0:
+        history_path=OUT/"sector_history.csv"
+        if not history_path.exists():
+            st.info("Chưa có dữ liệu lịch sử ngành. Ma trận sẽ hoạt động khi có output/sector_history.csv được tính từ OHLCV thực tế.")
+        else:
+            hist=pd.read_csv(history_path,parse_dates=["date"])
+            horizon=st.radio("Thay đổi trong số phiên",[5,10,20],index=1,horizontal=True)
+            pivot=hist.pivot_table(index="date",columns="sector",values="avg_score",aggfunc="last").sort_index()
+            if len(pivot)<=horizon:
+                st.warning(f"Cần tối thiểu {horizon+1} phiên dữ liệu ngành; hiện có {len(pivot)}.")
+            else:
+                current=pivot.iloc[-1]; past=pivot.iloc[-1-horizon]; delta=current-past
+                matrix=pd.DataFrame({"sector":current.index,"score":current.values,"delta":delta.values}).dropna()
+                matrix=matrix[matrix.sector.isin(g.sector)]
+                matrix=matrix.merge(g[["sector","stock_count","total_adv_vnd"]],on="sector",how="left")
+                threshold=50
+                matrix["quadrant"]=matrix.apply(lambda r:("Dẫn dắt" if r.score>=threshold else "Phục hồi") if r.delta>=0 else ("Hạ nhiệt" if r.score>=threshold else "Suy yếu"),axis=1)
+                if matrix.empty: st.info("Không có ngành đủ dữ liệu để vẽ ma trận.")
+                else:
+                    fig=px.scatter(matrix,x="score",y="delta",size="total_adv_vnd",color="quadrant",text="sector",hover_data=["stock_count"],size_max=55,labels={"score":"Flow Score hiện tại","delta":f"Thay đổi Flow Score {horizon} phiên (điểm)"})
+                    fig.add_vline(x=threshold,line_dash="dash",line_color="gray")
+                    fig.add_hline(y=0,line_dash="dash",line_color="gray")
+                    fig.update_traces(textposition="top center")
+                    st.plotly_chart(fig,use_container_width=True)
+                    st.dataframe(matrix.sort_values("delta",ascending=False),hide_index=True,use_container_width=True)
+                    st.download_button("Xuất dữ liệu ma trận",matrix.to_csv(index=False).encode("utf-8-sig"),"rotation_matrix.csv","text/csv")
+                st.caption("Chênh lệch điểm phản ánh thay đổi chỉ báo, không chứng minh dòng vốn dịch chuyển trực tiếp giữa hai ngành. Ngưỡng 50 là quy ước pilot.")
     with tab1:
         fig=px.bar(g,x="avg_score",y="sector",orientation="h",color="cmf_positive_pct",
                    hover_data=["stock_count","avg_cmf20","avg_rvol20"],
