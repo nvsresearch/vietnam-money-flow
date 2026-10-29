@@ -10,31 +10,10 @@ ROOT=Path(__file__).resolve().parent
 OUT=ROOT/'output'
 st.set_page_config(page_title='Vietnam Money Flow',page_icon='📈',layout='wide')
 
-# No guest mode. OIDC is supported by Streamlit >=1.42; set [auth] in secrets.
-if not hasattr(st,'login'):
-    st.error('Cần Streamlit >= 1.42 để dùng xác thực OIDC.')
-    st.stop()
-if not st.user.is_logged_in:
-    st.title('Vietnam Money Flow')
-    st.caption('Dashboard riêng cho nhóm đầu tư · yêu cầu đăng nhập')
-    if st.button('Đăng nhập',type='primary'):
-        st.login()
-    st.stop()
-
-try:
-    emails=st.secrets['access']['allowed_emails']
-    admins=st.secrets['access'].get('admin_emails',[])
-except (KeyError, FileNotFoundError):
-    st.error('Chưa cấu hình danh sách email được phép truy cập trong secrets.toml.')
-    st.stop()
-email=str(st.user.get('email','')).strip().lower()
-allowed={str(x).lower().strip() for x in emails}
-admin_set={str(x).lower().strip() for x in admins}
-if not email or email not in allowed:
-    st.error('Tài khoản chưa được cấp quyền. Liên hệ quản trị viên.')
-    if st.button('Đăng xuất'): st.logout()
-    st.stop()
-
+# Temporary deployment test
+# No user authentication in this version.
+email = "pilot"
+admin_set = set()
 @st.cache_data(ttl=300)
 def load_data():
     required=['stock_screener.csv','sector_rotation.csv']
@@ -45,7 +24,7 @@ def load_data():
         status=json.loads((OUT/'refresh_status.json').read_text(encoding='utf-8'))
     return stocks,sectors,status,[]
 
-with st.sidebar:
+
     st.title('Vietnam Money Flow')
     st.caption(email)
     page=st.radio('Trang', ['Stock Screener','Sector Rotation'])
