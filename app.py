@@ -14,6 +14,10 @@ st.set_page_config(page_title='Vietnam Money Flow',page_icon='📈',layout='wide
 # No user authentication in this version.
 email = "pilot"
 admin_set = set()
+page = st.sidebar.radio(
+    "Chọn trang",
+    ["Stock Screener", "Sector Rotation"]
+)
 @st.cache_data(ttl=300)
 def load_data():
     required=['stock_screener.csv','sector_rotation.csv']
